@@ -11,168 +11,104 @@ from nipype.interfaces.quickshear import Quickshear
 from nipype.interfaces.fsl import BET
 from shutil import copy, move
 
-__version__ = open(os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                'version')).read()
+__version__ = open(
+    os.path.join(os.path.dirname(os.path.realpath(__file__)), "version")
+).read()
 
 # define function for pydeface
 def run_pydeface(image, outfile):
-    #pydeface $image --outfile $outfile
-    cmd = ["pydeface", image,
-           "--out", outfile,
-           "--force",
-           ]
+    # pydeface $image --outfile $outfile
+    cmd = ["pydeface", image, "--out", outfile, "--force"]
     check_call(cmd)
     return
 
+
 # define function for mri_deface
 def run_mri_deface(image, brain_template, face_template, outfile):
-    #mri_deface $image $brain_template $face_template $outfile
-    cmd = ["mri_deface", image,
-                         brain_template,
-                         face_template,
-                         outfile,
-           ]
+    # mri_deface $image $brain_template $face_template $outfile
+    cmd = ["mri_deface", image, brain_template, face_template, outfile]
     check_call(cmd)
     return
+
 
 # define function for quickshear
 # based on the nipype docs quickshear example
 def run_quickshear(image, outfile):
-    #quickshear anat_file mask_file defaced_file [buffer]
-    deface_wf = pe.Workflow('deface_wf')
-    inputnode = pe.Node(niu.IdentityInterface(['in_file']),
-                     name='inputnode')
-    outputnode = pe.Node(niu.IdentityInterface(['out_file']),
-                      name='outputnode')
-    bet = pe.Node(BET(mask=True, frac=0.5), name='bet')
-    quickshear = pe.Node(Quickshear(buff=50), name='quickshear')
-    deface_wf.connect([
-        (inputnode, bet, [('in_file', 'in_file')]),
-        (inputnode, quickshear, [('in_file', 'in_file')]),
-        (bet, quickshear, [('mask_file', 'mask_file')]),
-        ])
+    # quickshear anat_file mask_file defaced_file [buffer]
+    deface_wf = pe.Workflow("deface_wf")
+    inputnode = pe.Node(niu.IdentityInterface(["in_file"]), name="inputnode")
+    outputnode = pe.Node(niu.IdentityInterface(["out_file"]), name="outputnode")
+    bet = pe.Node(BET(mask=True, frac=0.5), name="bet")
+    quickshear = pe.Node(Quickshear(buff=50), name="quickshear")
+    deface_wf.connect(
+        [
+            (inputnode, bet, [("in_file", "in_file")]),
+            (inputnode, quickshear, [("in_file", "in_file")]),
+            (bet, quickshear, [("mask_file", "mask_file")]),
+        ]
+    )
     inputnode.inputs.in_file = image
     quickshear.inputs.out_file = outfile
     res = deface_wf.run()
 
-# define function for mridefacer
-def run_mridefacer(image, subject_label):
-    cmd = ["mridefacer/mridefacer", "--apply",
-                         image]
+
+def run_mridefacer(image):
+    cmd = ["mridefacer/mridefacer", "--apply", image]
     check_call(cmd)
-    path = os.path.join(args.bids_dir, "sourcedata/bidsonym/sub-%s"%subject_label)
-    facemask = os.path.join(args.bids_dir, "sub-%s"%subject_label, "anat/sub-%s_T1w_defacemask.nii.gz"%subject_label)
-    if os.path.isdir(path) == True:
-        move(facemask, os.path.join(path))
-    else:
-        os.makedirs(path)
-        move(facemask, os.path.join(path))
     return
 
-# define function to copy non deidentified images to sourcedata/,
-# overwriting images in the bids root folder
-def copy_no_deid(subject_label):
-    path = os.path.join(args.bids_dir, "sourcedata/bidsonym/sub-%s"%subject_label)
-    outfile = T1_file[T1_file.rfind('/')+1:T1_file.rfind('.nii')]+'_no_deid.nii.gz'
-    if os.path.isdir(path) == True:
-        copy(T1_file, os.path.join(path, outfile))
-    else:
-        os.makedirs(path)
-        copy(T1_file, os.path.join(path, outfile))
+
+def run_all(filename, methods):
+    # the -7 removes the extension ".nii.gz" from the filename
+    if "pydeface" in methods:
+        pydefaced = filename[:-7] + "_pydeface.nii.gz"
+        if not os.path.exists(pydefaced):
+            copy(filename, pydefaced)
+            run_pydeface(pydefaced, pydefaced)
+    # This is inside a try catch block because it can fail sometimes due to Numerical Instability
+    try:
+        if "mri_deface" in methods:
+            mri_defaced = filename[:-7] + "_mri_deface.nii.gz"
+            if not os.path.exists(mri_defaced):
+                copy(filename, mri_defaced)
+                run_mri_deface(
+                    mri_defaced,
+                    "/home/fs_data/talairach_mixed_with_skull.gca",
+                    "/home/fs_data/face.gca",
+                    mri_defaced,
+                )
+    except:
+        pass
+    if "quickshear" in methods:
+        quicksheared = filename[:-7] + "_quickshear.nii.gz"
+        if not os.path.exists(quicksheared):
+            copy(filename, quicksheared)
+            run_quickshear(quicksheared, quicksheared)
+    if "mridefacer" in methods:
+        mridefacered = filename[:-7] + "_mridefacer.nii.gz"
+        if not os.path.exists(mridefacered):
+            copy(filename, mridefacered)
+            run_mridefacer(mridefacered)
 
 
-parser = argparse.ArgumentParser(description='a BIDS app for de-identification of neuroimaging data')
-parser.add_argument('bids_dir', help='The directory with the input dataset '
-                    'formatted according to the BIDS standard.')
-parser.add_argument('analysis_level', help='Level of the analysis that will be performed. '
-                    'Multiple participant level analyses can be run independently '
-                    '(in parallel) using the same output_dir.',
-                    choices=['participant', 'group'])
-parser.add_argument('--participant_label', help='The label(s) of the participant(s) that should be analyzed. The label '
-                   'corresponds to sub-<participant_label> from the BIDS spec '
-                   '(so it does not include "sub-"). If this parameter is not '
-                   'provided all subjects should be analyzed. Multiple '
-                   'participants can be specified with a space separated list.',
-                   nargs="+")
-parser.add_argument('--deid', help='Approach to use for de-identifictation.',
-                    choices=['pydeface', 'mri_deface', 'quickshear', 'mridefacer'])
-parser.add_argument('--del_nodeface', help='Overwrite and delete original data or copy original data to different folder.',
-                    choices=['del', 'no_del'])
-parser.add_argument('-v', '--version', action='version',
-                    version='BIDS-App example version {}'.format(__version__))
+if __name__ == "__main__":
 
-
-args = parser.parse_args()
-
-subjects_to_analyze = []
-
-# only for a subset of subjects
-if args.participant_label:
-    subjects_to_analyze = args.participant_label
-# for all subjects
-else:
-    subject_dirs = glob(os.path.join(args.bids_dir, "sub-*"))
-    subjects_to_analyze = [subject_dir.split("-")[-1] for subject_dir in subject_dirs]
-
-# running participant level
-if args.analysis_level == "participant":
-
-    # find all T1s and de-identify them
-    for subject_label in subjects_to_analyze:
-        for T1_file in glob(os.path.join(args.bids_dir, "sub-%s"%subject_label,
-                                         "anat", "*_T1w.nii*")) + glob(os.path.join(args.bids_dir,"sub-%s"%subject_label,"ses-*","anat", "*_T1w.nii*")):
-            if args.deid == "pydeface":
-                if args.del_nodeface == "del":
-                    run_pydeface(T1_file, T1_file)
-                else:
-                    copy_no_deid(subject_label)
-                    run_pydeface(T1_file, T1_file)
-            if args.deid == "mri_deface":
-                if args.del_nodeface == "del":
-                    run_mri_deface(T1_file, '/home/fs_data/talairach_mixed_with_skull.gca', '/home/fs_data/face.gca', T1_file)
-                else:
-                    copy_no_deid(subject_label)
-                    run_mri_deface(T1_file, '/home/fs_data/talairach_mixed_with_skull.gca', '/home/fs_data/face.gca', T1_file)
-            if args.deid == "quickshear":
-                if args.del_nodeface == "del":
-                    run_quickshear(T1_file, T1_file)
-                else:
-                    copy_no_deid(subject_label)
-                    run_quickshear(T1_file, T1_file)
-            if args.deid == "mridefacer":
-                if args.del_nodeface == "del":
-                    run_mridefacer(T1_file, subject_label)
-                else:
-                    copy_no_deid(subject_label)
-                    run_mridefacer(T1_file, subject_label)
-
-else:
-
-    # find all T1s and de-identify them
-    for subject_label in subjects_to_analyze:
-        for T1_file in glob(os.path.join(args.bids_dir, "sub-%s"%subject_label,
-                                         "anat", "*_T1w.nii*")) + glob(os.path.join(args.bids_dir,"sub-%s"%subject_label,"ses-*","anat", "*_T1w.nii*")):
-            if args.deid == "pydeface":
-                if args.del_nodeface == "del":
-                    run_pydeface(T1_file, T1_file)
-                else:
-                    copy_no_deid(subject_label)
-                    run_pydeface(T1_file, T1_file)
-            if args.deid == "mri_deface":
-                if args.del_nodeface == "del":
-                    run_mri_deface(T1_file, '/home/fs_data/talairach_mixed_with_skull.gca', '/home/fs_data/face.gca', T1_file)
-                else:
-                    copy_no_deid(subject_label)
-                    run_mri_deface(T1_file, '/home/fs_data/talairach_mixed_with_skull.gca', '/home/fs_data/face.gca', T1_file)
-            if args.deid == "quickshear":
-                if args.del_nodeface == "del":
-                    run_quickshear(T1_file, T1_file)
-                else:
-                    copy_no_deid(subject_label)
-                    run_quickshear(T1_file, T1_file)
-            if args.deid == "mridefacer":
-                if args.del_nodeface == "del":
-                    run_mridefacer(T1_file)
-                else:
-                    copy_no_deid(subject_label)
-                    run_mridefacer(T1_file)
+    parser = argparse.ArgumentParser(
+        description="Tool to use various defacing algorithms on NIFTI_GZ images"
+    )
+    parser.add_argument(
+        "--filename",
+        help="this needs to be an absolute path to the image as it would be inside the docker container.",
+        required=True,
+    )
+    parser.add_argument(
+        "--methods",
+        nargs="+",
+        default=["pydeface", "mri_deface", "quickshear", "mridefacer"],
+        help="the list of different methods to apply on the input image. "
+        "Options are pydeface, mri_deface, quickshear, mridefacer",
+    )
+    args = parser.parse_args()
+    for i in args.methods:
+        assert i in ["pydeface", "mri_deface", "quickshear", "mridefacer"]
+    run_all(args.filename, args.methods)
