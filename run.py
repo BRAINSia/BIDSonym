@@ -78,7 +78,28 @@ def run_all(filename, methods):
                     mri_defaced,
                 )
     except:
-        pass
+        try:
+            import SimpleITK as sitk
+            import numpy as np
+            img = sitk.ReadImage(filename)
+            arr = sitk.GetArrayFromImage(img)
+            low = np.percentile(arr, 1)
+            high = np.percentile(arr, 99)
+            clamp = sitk.ClampImageFilter()
+            clamp.SetLowerBound(low)
+            clamp.SetUpperBound(high)
+            img_modified = clamp.Execute(img)
+            sitk.WriteImage(img_modified, filename[:-7] + '_modified.nii.gz')
+            run_mri_deface(
+                filename[:-7] + '_modified.nii.gz',
+                "/home/fs_data/talairach_mixed_with_skull.gca",
+                "/home/fs_data/face.gca",
+                filename[:-7] + "_mri_deface.nii.gz",
+            )
+            os.remove(filename[:-7] + '_modified.nii.gz')
+        except:
+            pass
+
     if "quickshear" in methods:
         quicksheared = filename[:-7] + "_quickshear.nii.gz"
         if not os.path.exists(quicksheared):

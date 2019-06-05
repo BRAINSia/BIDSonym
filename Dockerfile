@@ -110,6 +110,7 @@ RUN export PATH="/opt/miniconda-latest/bin:$PATH" \
            'numpy' \
            'nipype' \
            'nibabel' \
+    && conda install -y -q --name bidsonym -c https://conda.anaconda.org/simpleitk SimpleITK \
     && sync && conda clean --all && sync \
     && sed -i '$isource activate bidsonym' $ND_ENTRYPOINT
 
@@ -179,6 +180,7 @@ RUN echo '{ \
     \n          "numpy", \
     \n          "nipype", \
     \n          "nibabel" \
+    \n          "SimpleITK" \
     \n        ], \
     \n        "create_env": "bidsonym", \
     \n        "activate": true \
