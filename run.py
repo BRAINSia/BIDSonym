@@ -66,8 +66,9 @@ def run_all(filename, methods):
             copy(filename, pydefaced)
             run_pydeface(pydefaced, pydefaced)
     # This is inside a try catch block because it can fail sometimes due to Numerical Instability
-    try:
-        if "mri_deface" in methods:
+    if "mri_deface" in methods:
+        defaceDone = False
+        try:
             mri_defaced = filename[:-7] + "_mri_deface.nii.gz"
             if not os.path.exists(mri_defaced):
                 copy(filename, mri_defaced)
@@ -77,29 +78,40 @@ def run_all(filename, methods):
                     "/home/fs_data/face.gca",
                     mri_defaced,
                 )
-    except:
-        try:
-            import SimpleITK as sitk
-            import numpy as np
-            img = sitk.ReadImage(filename)
-            arr = sitk.GetArrayFromImage(img)
-            low = np.percentile(arr, 1)
-            high = np.percentile(arr, 99)
-            clamp = sitk.ClampImageFilter()
-            clamp.SetLowerBound(low)
-            clamp.SetUpperBound(high)
-            img_modified = clamp.Execute(img)
-            sitk.WriteImage(img_modified, filename[:-7] + '_modified.nii.gz')
-            run_mri_deface(
-                filename[:-7] + '_modified.nii.gz',
-                "/home/fs_data/talairach_mixed_with_skull.gca",
-                "/home/fs_data/face.gca",
-                filename[:-7] + "_mri_deface.nii.gz",
-            )
-            os.remove(filename[:-7] + '_modified.nii.gz')
+            defaceDone = True
         except:
             pass
-
+        for lowPercentile in [1, 3, 5]:
+            try:
+                if not defaceDone:
+                    import SimpleITK as sitk
+                    import numpy as np
+                    img = sitk.ReadImage(filename)
+                    arr = sitk.GetArrayFromImage(img)
+                    low = np.percentile(arr, lowPercentile)
+                    high = np.percentile(arr, 100 - lowPercentile)
+                    clamp = sitk.ClampImageFilter()
+                    clamp.SetLowerBound(low)
+                    clamp.SetUpperBound(high)
+                    img_modified = clamp.Execute(img)
+                    sitk.WriteImage(img_modified, filename[:-7] + '_modified.nii.gz')
+                    run_mri_deface(
+                        filename[:-7] + '_modified.nii.gz',
+                        "/home/fs_data/talairach_mixed_with_skull.gca",
+                        "/home/fs_data/face.gca",
+                        filename[:-7] + "_mri_deface.nii.gz",
+                    )
+                    os.remove(filename[:-7] + '_modified.nii.gz')
+                    defaceDone = True
+            except:
+                pass
+        if not defaceDone:
+            try:
+                file = open('/' + filename.split('/')[1] + '/tmp/mri_deface.log', 'a')
+                file.write("Error in defacing: /" + '/'.join(filename.split('/')[2:]) + '\n')
+                file.close()
+            except:
+                pass
     if "quickshear" in methods:
         quicksheared = filename[:-7] + "_quickshear.nii.gz"
         if not os.path.exists(quicksheared):
